@@ -360,7 +360,7 @@ else
     largearraydims = '';
 end
 
-lib_blas = [matlabroot '\extern\lib\' compdir '\' libdir '\libmwblas.lib'];
+lib_blas = [matlabroot '\extern\lib\' compdir '\' libdir '\libmwblascompat32.lib'];
 d = dir(lib_blas);
 if( isempty(d) )
     disp('... BLAS library file not found, so linking with the LAPACK library');
