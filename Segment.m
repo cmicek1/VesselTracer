@@ -13,7 +13,7 @@ classdef Segment
         mu
         
         % Scale (x, y, z)
-        rho
+        sigma
         
         % Orientation (z, y, x)
         phi
@@ -82,7 +82,7 @@ classdef Segment
             end
             obj.epsilon = 0.25;
             obj.mu = [0; 0; 0];
-            obj.rho = [3; 3; 4.5];
+            obj.sigma = [3; 3; 4.5];
             obj.phi = [0; 0; 0];
             obj.R = eye(3);
             obj.q = [1, 0, 0, 0];
@@ -90,11 +90,17 @@ classdef Segment
             obj.IF0 = 0;
             obj.IB0 = 255;
             obj.alpha = 0;
-            obj.initIterMax = 0;
+            obj.initIterMax = 20;
         end
         
-        function obj = translate(obj, point)
+        function obj = translate(obj, point, imSz)
             obj.mu = obj.mu + point;
+            obj.mu(1) = obj.mu(1) * (obj.mu(1) >= 1 && obj.mu(1) <= imSz(1)) + ...
+                (obj.mu(1) < 1) + (obj.mu(1) > imSz(1)) * imSz(1);
+            obj.mu(2) = obj.mu(2) * (obj.mu(2) >= 1 && obj.mu(2) <= imSz(2)) + ...
+                (obj.mu(2) < 1) + (obj.mu(2) > imSz(2)) * imSz(2);
+            obj.mu(3) = obj.mu(3) * (obj.mu(3) >= 1 && obj.mu(3) <= imSz(3)) + ...
+                (obj.mu(3) < 1) + (obj.mu(3) > imSz(3)) * imSz(3);
             obj.x = obj.x + point(1);
             obj.y = obj.y + point(2);
             obj.z = obj.z + point(3);
@@ -247,6 +253,7 @@ classdef Segment
                 for i = 1:size(c, 1)
                     J(:, :, i) = obj.Jacobian(false, c(i, :))';
                 end
+                temp = (F .* areas .* surfnorms)';
                 delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
                 L = sum(F);
             end

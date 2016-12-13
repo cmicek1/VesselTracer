@@ -12,8 +12,11 @@ startSeg = Segment(x, y, z);
 [numrow, numcol, numz] = size(FinalImage);
 outsideWin = 30;
 
-newSeeds = NaN(size(seedCoord, 1), 3);
-L_list = NaN(size(seedCoord, 1), 1);
+% Use subset of all points for demo
+testSeeds = seedCoord(seedCoord(:, 3) >= 20 & seedCoord(:, 3) <= 30);
+
+newSeeds = NaN(size(testSeeds, 1), 3);
+L_list = NaN(size(testSeeds, 1), 1);
 seg_list = startSeg;
 seg_list = repmat(seg_list, length(L_list), 1);
 
@@ -22,7 +25,7 @@ for i = 1:length(seg_list)
     
     % Generate temporary segment
     temp = seg_list(i);
-    temp = temp.translate(point);
+    temp = temp.translate(point, size(FinalImage));
     temp = temp.intensity_est(FinalImage, outsideWin, true);
     if temp.IB == temp.IF
         continue
@@ -35,7 +38,7 @@ cond = isnan(newSeeds);
 
 seg_list(cond(:, 1)) = [];
 L_list(cond(:, 1)) = [];
-newSeeds = NaN(size(seedCoord, 1), 3);
+newSeeds = NaN(size(L_list, 1), 3);
 epsilon = 1e-4;
 
 prevL = zeros(10, 1);
@@ -54,14 +57,7 @@ for i = 1:length(seg_list)
         delL = delL * dt;
         temp.L = L;
         muN = delL(1:3);
-        temp = temp.translate(muN);
-        temp.mu(1) = temp.mu(1) * (temp.mu(1) >= 1 && temp.mu(1) <= numrow) + ...
-            (temp.mu(1) < 1) + (temp.mu(1) > numrow) * numrow;
-        temp.mu(2) = temp.mu(2) * (temp.mu(2) >= 1 && temp.mu(2) <= numcol) + ...
-            (temp.mu(2) < 1) + (temp.mu(2) > numcol) * numcol;
-        temp.mu(3) = temp.mu(3) * (temp.mu(3) >= 1 && temp.mu(3) <= numz) + ...
-            (temp.mu(3) < 1) + (temp.mu(3) > numz) * numz;
-        
+        temp = temp.translate(muN, [numrow, numcol, numz]);
         newSeeds(i, :) = temp.mu';
         L_list(i) = L;
         seg_list(i) = temp;
@@ -87,13 +83,7 @@ for i = 1:length(seg_list)
         delL = delL * dt;
         temp.L = L;
         muN = delL(1:3);
-        temp = temp.translate(muN);
-        temp.mu(1) = temp.mu(1) * (temp.mu(1) >= 1 && temp.mu(1) <= numrow) + ...
-            (temp.mu(1) < 1) + (temp.mu(1) > numrow) * numrow;
-        temp.mu(2) = temp.mu(2) * (temp.mu(2) >= 1 && temp.mu(2) <= numcol) + ...
-            (temp.mu(2) < 1) + (temp.mu(2) > numcol) * numcol;
-        temp.mu(3) = temp.mu(3) * (temp.mu(3) >= 1 && temp.mu(3) <= numz) + ...
-            (temp.mu(3) < 1) + (temp.mu(3) > numz) * numz;
+        temp = temp.translate(muN, [numrow, numcol, numz]);
         temp = temp.scale(delL(4:6));
         temp = temp.rotate(delL(7:9));
         temp = temp.shape(delL(10));
