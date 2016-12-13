@@ -27,7 +27,11 @@ classdef Segment
         % For Jacobian calculation
         G
         
-        % Background and foreground image intensities
+        % Background and foreground image intensities (original estimates)
+        IF0
+        IB0
+        
+        % Background and foreground image intensities (updated)
         IF
         IB
         
@@ -36,6 +40,9 @@ classdef Segment
         
         % Max iterations for initialization
         initIterMax
+        
+        % Log-likelihood
+        L
     end
     methods (Access = protected)
         % Marginal distribution for Laplacian noise
@@ -67,7 +74,12 @@ classdef Segment
     end
     methods
         
-        function obj = Segment()
+        function obj = Segment(varargin)
+            if nargin > 0
+                obj.x = varargin{1};
+                obj.y = varargin{2};
+                obj.z = varargin{3};
+            end
             obj.epsilon = 0.25;
             obj.mu = [0; 0; 0];
             obj.rho = [3; 3; 4.5];
@@ -75,8 +87,8 @@ classdef Segment
             obj.R = eye(3);
             obj.q = [1, 0, 0, 0];
             obj = obj.updateG();
-            obj.IF = 0;
-            obj.IB = 255;
+            obj.IF0 = 0;
+            obj.IB0 = 255;
             obj.alpha = 0;
             obj.initIterMax = 0;
         end
@@ -117,7 +129,7 @@ classdef Segment
         end
         
         
-        function obj = intensity_est(obj, image, outsideWin)
+        function obj = intensity_est(obj, image, outsideWin, start)
             minr = min(obj.x);
             minc = min(obj.y);
             minz = min(obj.z);
@@ -143,7 +155,16 @@ classdef Segment
             insideRegion = image(lr:ur, lc:uc, lz:uz);
             
             % Estimate foreground intensity
-            obj.IF = median(insideRegion(:));
+            if start
+                obj.IF0 = median(insideRegion(:));
+                obj.IF = obj.IF0;
+            else
+                % Use skipped median M-estimator for future estimates
+                temp = insideRegion(:) - obj.IF0;
+                s = 0.5 * abs(obj.IF0 - obj.IB0);
+                temp = temp(temp <= s);
+                obj.IF = median(temp);
+            end
             
             % Calculate MAD statistic
             obj.alpha = mad(double(insideRegion(:)));
@@ -161,17 +182,25 @@ classdef Segment
             outsideRegion = image(lr:ur, lc:uc, lz:uz);
             
             % Estimate background intensity
-            obj.IB = median(outsideRegion(:));
+            if start
+                obj.IB0 = median(outsideRegion(:));
+                obj.IB = obj.IB0;
+            else
+                % Use skipped median M-estimator for future estimates
+                temp = insideRegion(:) - obj.IB0;
+                s = 0.5 * abs(obj.IF0 - obj.IB0);
+                temp = temp(temp <= s);
+                obj.IB = median(temp);
+            end
         end
         
-        function delL = Lgrad(obj, image)
+        function [delL, L] = Lgrad(obj, image, start)
             hull = convhull(obj.x, obj.y, obj.z, 'Simplify', true);
             set(0,'DefaultFigureVisible','off');
             t = trisurf(hull, obj.x, obj.y, obj.z);
             set(0,'DefaultFigureVisible','on');
             np = reducepatch(t, 0.2);
             [numrow, numcol, numz] = size(image);
-            delL = 0;
             
             Aind = np.faces(:, 1);
             Bind = np.faces(:, 2);
@@ -206,47 +235,21 @@ classdef Segment
             
             F = log(obj.f(IC - obj.IF) ./ obj.f(IC - obj.IB));
             F(isinf(F)) = 0;
-            J = permute(obj.Jacobian(true)', [1, 2, 3]);
-            J = repmat(J, 1, 1, length(F));
-            temp = (F .* areas .* surfnorms)';
-            temp = permute(temp, [1, 3, 2]);
-            delL = sum(mtimesx(J, temp, 'LOOPS'), 3);
-%             for f = 1:size(np.faces, 1)
-%                 v1 = np.vertices(np.faces(f, 1), :);
-%                 v2 = np.vertices(np.faces(f, 2), :);
-%                 v3 = np.vertices(np.faces(f, 3), :);
-%                 
-%                 c = int64(floor(mean([v1; v2; v3], 1)));
-%                 if c(1) < 1
-%                     c(1) = 1;
-%                 elseif c(1) > numrow
-%                     c(1) = numrow;
-%                 end
-%                 if c(2) < 1
-%                     c(2) = 1;
-%                 elseif c(2) > numcol
-%                     c(2) = numcol;
-%                 end
-%                 if c(3) < 1
-%                     c(3) = 1;
-%                 elseif c(3) > numz
-%                     c(3) = numz;
-%                 end
-%                 IC = image(c(1), c(2), c(3));
-%                 
-%                 aVec = cross(v2 - v1, v3 - v1)';
-%                 surfNorm = aVec / norm(aVec);
-%                 surfaceArea = 0.5 * norm(aVec);
-%                 
-%                 F = log(obj.f(IC - obj.IF) ./ obj.f(IC - obj.IB));
-%                 if isinf(F)
-%                     F = 0;
-%                 end
-%                 J = obj.Jacobian(true);
-%                 
-%                 delL = delL + F * J' * surfNorm * surfaceArea;
-%                 
-%             end
+            if start
+                J = permute(obj.Jacobian(true)', [1, 2, 3]);
+                J = repmat(J, 1, 1, length(F));
+                temp = (F .* areas .* surfnorms)';
+                temp = permute(temp, [1, 3, 2]);
+                delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
+                L = sum(F);
+            else
+                J = NaN(10, 3, length(F));
+                for i = 1:size(c, 1)
+                    J(:, :, i) = obj.Jacobian(false, c(i, :))';
+                end
+                delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
+                L = sum(F);
+            end
         end
     end
 end
