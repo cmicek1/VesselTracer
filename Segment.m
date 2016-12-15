@@ -47,7 +47,7 @@ classdef Segment
     methods (Access = protected)
         % Marginal distribution for Laplacian noise
         function val = f(obj, arg)
-            val = obj.alpha / 2 * exp(-obj.alpha * abs(double(arg)));
+            val = obj.alpha / 2 .* exp(-obj.alpha .* abs(double(arg)));
         end
         
         function J = Jacobian(obj, start, point)
@@ -62,8 +62,8 @@ classdef Segment
                 d_sigma = qR * diag(sig * u);
                 p_vec = diag(obj.sigma) * sig * u;
                 P = [0, -p_vec(3), p_vec(2);
-                     p_vec(3), 0, -p_vec(1);
-                     -p_vec(2), p_vec(1), 0];
+                    p_vec(3), 0, -p_vec(1);
+                    -p_vec(2), p_vec(1), 0];
                 d_q = -qR * P * obj.G;
                 d_epsilon = qR * diag(obj.sigma) * calc_dsig(point(1),...
                     point(2), point(3), obj.epsilon) * u;
@@ -86,7 +86,7 @@ classdef Segment
             end
             obj.epsilon = 0.25;
             obj.mu = [0; 0; 0];
-            obj.sigma = [3; 3; 4.5];
+            obj.sigma = [3; 3; 1.5];
             obj.phi = [0; 0; 0];
             obj.R = eye(3);
             obj.q = [1, 0, 0, 0];
@@ -155,11 +155,11 @@ classdef Segment
         function obj = intensity_est(obj, image, outsideWin, start)
             minr = min(obj.x);
             minc = min(obj.y);
-            minz = min(obj.z);
+            minz = floor(obj.mu(3)) - 1;
             
             maxr = max(obj.x);
             maxc = max(obj.y);
-            maxz = max(obj.z);
+            maxz = floor(obj.mu(3));
             
             [numrow, numcol, numz] = size(image);
             
@@ -205,7 +205,7 @@ classdef Segment
             outsideRegion = image(lr:ur, lc:uc, lz:uz);
             
             % Estimate background intensity
-            if start
+            if true % start
                 obj.IB0 = median(outsideRegion(:));
                 obj.IB = obj.IB0;
             else
@@ -217,7 +217,7 @@ classdef Segment
             end
         end
         
-        function [delL, L] = Lgrad(obj, image, start) 
+        function [delL, L] = Lgrad(obj, image, start)
             try
                 hull = convhull(obj.x, obj.y, obj.z, 'Simplify', true);
             catch EXCEPT
@@ -228,7 +228,7 @@ classdef Segment
             set(0,'DefaultFigureVisible','off');
             t = trisurf(hull, obj.x, obj.y, obj.z);
             set(0,'DefaultFigureVisible','on');
-            np = reducepatch(t, 0.2);
+            np = reducepatch(t, 0.05);
             [numrow, numcol, numz] = size(image);
             
             Aind = np.faces(:, 1);
@@ -258,12 +258,15 @@ classdef Segment
             
             IC = image(li);
             aVec = cross(Bv - Av, Cv - Av);
-            lens = sqrt(sum(abs(aVec).^2,2));
+            if any(isnan(aVec))
+                aVec = cross(Av - Bv, Av - Cv);
+            end
+            lens = sqrt(sum(abs(aVec).^2,2)) + 0.001;
             surfnorms = aVec ./ lens;
             areas = 0.5 * lens;
             
             F = log(obj.f(IC - obj.IF) ./ obj.f(IC - obj.IB));
-            F(isinf(F)) = 0;
+            F(isinf(F)) = -5e6;
             if start
                 J = permute(obj.Jacobian(true)', [1, 2, 3]);
                 J = repmat(J, 1, 1, length(F));
@@ -283,6 +286,89 @@ classdef Segment
                 temp = permute(temp, [1, 3, 2]);
                 delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
                 L = sum(F);
+            end
+        end
+        
+        function L = likelihood(obj, image)
+            minr = min(obj.x);
+            minc = min(obj.y);
+            minz = floor(obj.mu(3)) - 1;
+            
+            maxr = max(obj.x);
+            maxc = max(obj.y);
+            maxz = floor(obj.mu(3));
+            
+            [numrow, numcol, numz] = size(image);
+            
+            
+            lr = floor(max([1, minr]));
+            ur = floor(min([maxr, numrow]));
+            
+            lc = floor(max([1, minc]));
+            uc = floor(min([maxc, numcol]));
+            
+            lz = floor(max([1, minz]));
+            uz = floor(min([maxz, numz]));
+            
+            % Get bounding box for ellipsoid (easier/more efficient than convex
+            % hull)
+            insideRegion = image(lr:ur, lc:uc, lz:uz);
+            insideRegion = insideRegion(:);
+            in = abs(insideRegion - obj.IF);
+            out = abs(insideRegion - obj.IB);
+            L = (1/obj.alpha) * sum(-in + out);
+        end
+        
+        function [newMask, newCol, newColPoints, done] = ...
+                markVisited(obj, visited, mask, label, collisions, pts)
+            done = false;
+            minr = min(obj.x);
+            minc = min(obj.y);
+            minz = floor(obj.mu(3)) - 1;
+            
+            maxr = max(obj.x);
+            maxc = max(obj.y);
+            maxz = floor(obj.mu(3));
+            
+            [numrow, numcol, numz] = size(visited);
+            
+            
+            lr = floor(max([1, minr]));
+            ur = floor(min([maxr, numrow]));
+            
+            lc = floor(max([1, minc]));
+            uc = floor(min([maxc, numcol]));
+            
+            lz = floor(max([1, minz]));
+            uz = floor(min([maxz, numz]));
+            
+            roi = visited((mask{1} >= lr & mask{1} <= ur) & ...
+                (mask{2} >= lc & mask{2} <= uc) & ...
+                (mask{3} >= lz & mask{3} <= uz));
+            if any((roi ~= 0) & (roi ~= label))
+                ind = find((roi ~= 0) & (roi ~= label));
+                newCol = vertcat(collisions, [label; roi(ind)]);
+                newColPoints = vertcat(pts, obj);
+                done = true;
+            end
+            if lr == minr || ur == numrow || lc == minc || uc == numcol ||...
+                    lz == minz || uz == numz
+                done = true;
+            end
+            visited(roi) = label;
+            
+            newMask = visited;
+        end
+        
+        function offVessel = tstat(obj, image, thresh)
+            offVessel = false;
+            try
+                [~, vol] = convhull(obj.x, obj.y, obj.z, 'Simplify', true);
+            catch EXCEPT
+                return
+            end
+            if obj.likelihood(image) / vol < thresh
+               offVessel = true;
             end
         end
     end

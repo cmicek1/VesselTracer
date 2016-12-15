@@ -40,12 +40,12 @@ outsideWin = 30;
 % L_list(cond(:, 1)) = [];
 % newSeeds = NaN(size(L_list, 1), 3);
 epsilon = 1e-4;
-% 
+% dt = 0.003;
 % % Update position
 % for i = 1:length(seg_list)
 %     prevL = zeros(11, 1);
 %     temp = seg_list(i);
-%     for iter = 1:temp.initIterMax
+%     for iter = 1:20
 %         % Next estimate new mu
 %         % First calculate likelihood gradient
 %         [delL, L] = temp.Lgrad(FinalImage, true);
@@ -70,10 +70,11 @@ epsilon = 1e-4;
 % newSeeds(:, 3) = floor(newSeeds(:, 3));
 % 
 % % Save so if we ever get here, we don't have to do it again
-% save('newSeeds.mat', 'newSeeds', 'seg_list', 'L_list')
+% save('newSeeds5.mat', 'newSeeds', 'seg_list', 'L_list')
 
-load('newSeeds.mat')
+load('newSeeds5.mat')
 % Now reestimate other parameters
+dt = 0.01;
 maxIt = 20;
 tic;
 for i = 1:length(seg_list)
@@ -91,7 +92,7 @@ for i = 1:length(seg_list)
             break
         end
         delL = delL * dt;
-        if any(delL >= 1e10)
+        if any(delL >= 1e6)
             break
         end
         if ~isnan(L)
@@ -109,6 +110,99 @@ for i = 1:length(seg_list)
     end
 end
 
-save('newSeeds2.mat', 'L_list', 'seg_list')
+save('newSeeds6.mat', 'L_list', 'seg_list')
 
+%%
+load('newSeeds6.mat')
+for i = 1:length(seg_list)
+    L_list(i) = seg_list(i).IB - seg_list(i).IF;
+end
+[~, inds] = sort(L_list);
+candidates = seg_list(inds(end:-1:1));
+L_list = L_list(inds(end:-1:1));
+inds = [];
+for i = 1:length(candidates)
+    if isempty(candidates(i).x) || candidates(i).mu(1) == numrow ...
+            || candidates(i).mu(2) == numcol ||candidates(i).mu(3) == numz
+        inds = horzcat(inds, i);
+    end
+end
+candidates(inds) = [];
+L_List(inds) = [];
+[XX, YY, ZZ] = meshgrid(1:numrow, 1:numcol, 1:numz);
+visited = zeros(size(FinalImage));
+
+
+numToVisit = 2;
+vessels = cell(1, numToVisit);
+collisions = [];
+collPoints = [];
+done = false;
+
+maxIt = 1000;
+updateIt = 10;
+for v = 1:numToVisit
+    cur = candidates(v);
+    [visited, collisions, collPoints, done] = cur.markVisited(visited,...
+        {XX, YY, ZZ}, v, collisions, collPoints);
+    % Make segment container
+    segs = cell(1, 2 * maxIt + 1);
+    segs{numToVisit + 1} = cur;
+    evecs = pca([cur.x', cur.y', cur.z']);
+    % Should be largest eigenvector
+    p_axis = evecs(:, 1);
+    % Make unit length
+    p_axis = p_axis / norm(p_axis);
+    
+    choices = [-p_axis, p_axis];
+    for c = 1:2
+        prevDir = choices(c);
+        prevSeg = cur;
+        for i = 1:maxIt
+            newSeg = prevSeg;
+            newSeg = newSeg.translate(prevDir * 0.5 * min(newSeg.sigma(1), ...
+                newSeg.sigma(2)));
+            evecs = pca([newSeg.x', newSeg.y', newSeg.z']);
+            newDir = evecs(:, 1);
+            angle = atan2(norm(cross(prevDir,newDir)),dot(prevDir,newDir));
+            if angle > pi/2
+                newDir = -newDir;
+            end
+            prevDir = newDir;
+            for it = 1:updateIt
+                [delL, ~] = newSeg.Lgrad(FinalImage, false);
+                % Check for convergence
+                if all(abs(delL - prevL) < epsilon)
+                    break
+                end
+                delL = delL * dt;
+                if any(delL >= 1e6)
+                    break
+                end
+                newSeg.sigma = newSeg.sigma + delL(4:6);
+                newSeg.q = newSeg.q + delL(7:10)';
+                newSeg.epsilon = newSeg.epsilon + delL(11);
+                % Shape method applies all other changes to starting ellipsoid
+                newSeg = newSeg.shape(size(FinalImage));
+            end
+            
+            
+            [visited, collisions, collPoints, done] =...
+                newSeg.markVisited(visited, {XX, YY, ZZ}, v);
+            
+            if done || newSeg.tstat(FinalImage, 0.2)
+                break
+            end
+            
+            if c == 1
+                segs{numToVisit + 1 + i} = newSeg;
+            else
+                segs{numToVisit + 1 - i} = newSeg;
+            end
+            
+            prevSeg = newSeg;
+        end
+    end
+    vessels{v} = segs;
+end
 end
