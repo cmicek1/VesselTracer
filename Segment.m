@@ -53,18 +53,22 @@ classdef Segment
         function J = Jacobian(obj, start, point)
             d_mu = eye(3);
             d_sigma = zeros(3, 3);
-            d_phi = zeros(3, 3);
+            d_q = zeros(3, 4);
             d_epsilon = zeros(3, 1);
             if ~start
                 sig = calcEllipse(point(1), point(2), point(3), obj.epsilon);
-                u = point / norm(point);
+                u = point' / norm(point);
                 qR = quat2rotm(obj.q);
                 d_sigma = qR * diag(sig * u);
-                d_phi = -qR * diag(obj.sigma) * sig * u * obj.G;
+                p_vec = diag(obj.sigma) * sig * u;
+                P = [0, -p_vec(3), p_vec(2);
+                     p_vec(3), 0, -p_vec(1);
+                     -p_vec(2), p_vec(1), 0];
+                d_q = -qR * P * obj.G;
                 d_epsilon = qR * diag(obj.sigma) * calc_dsig(point(1),...
                     point(2), point(3), obj.epsilon) * u;
             end
-            J = [d_mu, d_sigma, d_phi, d_epsilon];
+            J = [d_mu, d_sigma, d_q, d_epsilon];
         end
         function obj = updateG(obj)
             obj.G = 2 * [-obj.q(2), obj.q(1), obj.q(3), -obj.q(4);
@@ -107,9 +111,14 @@ classdef Segment
         end
         
         function obj = rotate(obj, angle)
-            obj.phi = mod(obj.phi + angle, 2*pi);
-            obj.R = eul2rotm(obj.phi);
-            obj.q = rotm2quat(obj.R);
+            if nargin > 1
+                obj.q = angle;
+                obj.R = quat2rotm(angle);
+                obj.phi = rotm2eul(obj.R);
+            else
+                obj.R = quat2rotm(obj.q);
+                obj.phi = rotm2eul(obj.R);
+            end
             rotated = obj.R * [obj.x; obj.y; obj.z];
             obj.x = rotated(1, :);
             obj.y = rotated(2, :);
@@ -118,20 +127,28 @@ classdef Segment
         end
         
         function obj = scale(obj, scalevec)
-            obj.sigma = scalevec;
+            if nargin > 1
+                obj.sigma = scalevec;
+            else
+                scalevec = obj.sigma;
+            end
             obj.x = obj.x * scalevec(1);
             obj.y = obj.y * scalevec(2);
             obj.z = obj.z * scalevec(3);
         end
         
-        function obj = shape(obj, epsilon)
-            obj.epsilon = epsilon;
+        function obj = shape(obj, sz, epsilon)
+            if nargin > 2
+                obj.epsilon = epsilon;
+            else
+                epsilon = obj.epsilon;
+            end
             start = ellipsoidInit(epsilon, 1);
             obj.x = start.XData;
             obj.y = start.YData;
             obj.z = start.ZData;
             clear start
-            obj = obj.scale(obj.sigma).rotate(obj.phi).translate(obj.mu);
+            obj = obj.scale(obj.sigma).rotate(obj.q).translate(obj.mu, sz);
         end
         
         
@@ -200,8 +217,14 @@ classdef Segment
             end
         end
         
-        function [delL, L] = Lgrad(obj, image, start)
-            hull = convhull(obj.x, obj.y, obj.z, 'Simplify', true);
+        function [delL, L] = Lgrad(obj, image, start) 
+            try
+                hull = convhull(obj.x, obj.y, obj.z, 'Simplify', true);
+            catch EXCEPT
+                delL = zeros(11, 3);
+                L = NaN;
+                return
+            end
             set(0,'DefaultFigureVisible','off');
             t = trisurf(hull, obj.x, obj.y, obj.z);
             set(0,'DefaultFigureVisible','on');
@@ -247,13 +270,17 @@ classdef Segment
                 temp = (F .* areas .* surfnorms)';
                 temp = permute(temp, [1, 3, 2]);
                 delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
+                if any(isnan(delL))
+                    delL(isnan(delL)) = 0;
+                end
                 L = sum(F);
             else
-                J = NaN(10, 3, length(F));
+                J = NaN(11, 3, length(F));
                 for i = 1:size(c, 1)
                     J(:, :, i) = obj.Jacobian(false, c(i, :))';
                 end
                 temp = (F .* areas .* surfnorms)';
+                temp = permute(temp, [1, 3, 2]);
                 delL = sum(mtimesx(J, temp, 'SPEEDOMP'), 3);
                 L = sum(F);
             end

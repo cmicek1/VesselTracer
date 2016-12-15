@@ -2,11 +2,11 @@ function getSeeds(image)
 load(image)
 
 % Trim first few slices
-offset = 3;
-FinalImage = FinalImage(:, :, (1+offset):end);
+offset = 0;
+% FinalImage = FinalImage(:, :, (1+offset):end);
 
 % Estimate of average vessel width, in pixels
-width = 6;
+width = 4;
 seeds = {};
 [rmax, cmax, zmax] = size(FinalImage);
 % Condense image planes into line grid, search for potential seed points
@@ -32,11 +32,11 @@ for k = k_range
         end
     end
 end
-    
-    numSeeds = numel(seeds);
-    seedCoord = zeros(numSeeds,3);
-    for ii = 1:1:numSeeds
-        seedCoord(ii,:) = seeds{ii};
-    end
-    save('trace_seeds.mat', 'seeds','seedCoord')
+
+numSeeds = numel(seeds);
+seedCoord = zeros(numSeeds,3);
+for ii = 1:1:numSeeds
+    seedCoord(ii,:) = seeds{ii};
+end
+save('trace_seeds.mat', 'seeds','seedCoord')
 end
