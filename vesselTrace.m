@@ -14,7 +14,6 @@ outsideWin = 30;
 
 % % Use subset of all points for demo
 % testSeeds = seedCoord; % (seedCoord(:, 3) >= 20 & seedCoord(:, 3) <= 30);
-%
 % newSeeds = NaN(size(testSeeds, 1), 3);
 % L_list = NaN(size(testSeeds, 1), 1);
 % seg_list = startSeg;
@@ -68,7 +67,8 @@ epsilon = 1e-4;
 % end
 %
 % newSeeds(:, 3) = floor(newSeeds(:, 3));
-%
+
+
 % % Save so if we ever get here, we don't have to do it again
 % save('newSeeds5.mat', 'newSeeds', 'seg_list', 'L_list')
 
@@ -200,9 +200,9 @@ for v = 5
             end
             
             if c == 1
-                segs{maxIt + 1 + i} = newSeg;
+                segs{numToVisit + 1 + i} = newSeg;
             else
-                segs{maxIt + 1 - i} = newSeg;
+                segs{numToVisit + 1 - i} = newSeg;
             end
             
             prevSeg = newSeg;

@@ -268,7 +268,9 @@ classdef Segment
             areas = 0.5 * lens;
             
             F = log(obj.f(IC - obj.IF) ./ obj.f(IC - obj.IB));
+
             F(isinf(F)) = -5000;
+
             if start
                 J = permute(obj.Jacobian(true)', [1, 2, 3]);
                 J = repmat(J, 1, 1, length(F));
@@ -324,8 +326,10 @@ classdef Segment
         function [newMask, newCol, newColPoints, done] = ...
                 markVisited(obj, visited, mask, label, collisions, pts)
             done = false;
+
             newCol = collisions;
             newColPoints = pts;
+
             minr = min(obj.x);
             minc = min(obj.y);
             minz = floor(obj.mu(3)) - 1;
@@ -345,7 +349,6 @@ classdef Segment
             
             lz = floor(max([1, minz]));
             uz = floor(min([maxz, numz]));
-            
             roi = visited(floor(lr):floor(ur), floor(lc):floor(uc), ...
                 floor(lz):floor(uz));
             if any((roi ~= 0) & (roi ~= label))
