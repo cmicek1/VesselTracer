@@ -195,7 +195,7 @@ for v = 5
             [visited, collisions, collPoints, done] =...
                 newSeg.markVisited(visited, {XX, YY, ZZ}, v, collisions, collPoints);
             
-            if done || newSeg.tstat(FinalImage, 0.2)
+            if false %done || newSeg.tstat(FinalImage, 0.2)
                 break
             end
             
